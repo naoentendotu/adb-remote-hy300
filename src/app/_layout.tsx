@@ -1,18 +1,25 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from 'expo-router';
-import * as SplashScreen from 'expo-splash-screen';
-import { useColorScheme } from 'react-native';
+import { DarkTheme, Stack, ThemeProvider } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
 
-import { AnimatedSplashOverlay } from '@/components/animated-icon';
-import AppTabs from '@/components/app-tabs';
+import { AdbProvider } from '@/hooks/useAdbConnection';
+import { colors } from '@/theme';
 
-SplashScreen.preventAutoHideAsync();
+const theme = {
+  ...DarkTheme,
+  colors: { ...DarkTheme.colors, background: colors.background, card: colors.background, text: colors.text, primary: colors.primary },
+};
 
-export default function TabLayout() {
-  const colorScheme = useColorScheme();
+export default function RootLayout() {
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <AnimatedSplashOverlay />
-      <AppTabs />
+    <ThemeProvider value={theme}>
+      <AdbProvider>
+        <StatusBar style="light" />
+        <Stack screenOptions={{ headerStyle: { backgroundColor: colors.background }, headerTintColor: colors.text, headerShadowVisible: false }}>
+          <Stack.Screen name="index" options={{ title: 'Remote ADB Controller' }} />
+          <Stack.Screen name="remote" options={{ title: 'Controle' }} />
+          <Stack.Screen name="diagnostics" options={{ title: 'Diagnóstico' }} />
+        </Stack>
+      </AdbProvider>
     </ThemeProvider>
   );
 }

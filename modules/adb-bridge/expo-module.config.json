@@ -1,0 +1,6 @@
+{
+  "platforms": ["android"],
+  "android": {
+    "modules": ["dev.hy300.adbbridge.AdbBridgeModule"]
+  }
+}

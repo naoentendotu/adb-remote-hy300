@@ -1,0 +1,20 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'dev.hy300.adbbridge'
+version = '1.0.0'
+
+android {
+  namespace "dev.hy300.adbbridge"
+  defaultConfig {
+    versionCode 1
+    versionName '1.0.0'
+  }
+}
+
+dependencies {
+  // ADB protocol client (CNXN/AUTH/OPEN, shell v2). Apache-2.0, https://github.com/mobile-dev-inc/dadb
+  implementation 'dev.mobile:dadb:2.0.0'
+}

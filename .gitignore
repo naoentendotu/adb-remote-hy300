@@ -31,6 +31,7 @@ yarn-error.*
 *.pem
 
 # local env files
+.env
 .env*.local
 
 # typescript
@@ -38,6 +39,15 @@ yarn-error.*
 
 example
 
-# generated native folders
-/ios
+# Generated native projects (Continuous Native Generation)
 /android
+/ios
+
+# Gradle build output of local modules
+build/
+.gradle/
+local.properties
+
+# Local notes and tool config
+HANDOFF.md
+.claude/

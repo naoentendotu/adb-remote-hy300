@@ -1,12 +1,13 @@
-# Remote ADB Controller (HY300)
+# Projex Remote (HY300)
 
 App Android (Expo + React Native) que controla o projetor HY300 pela rede local via ADB sobre TCP.
 
 ## Estrutura
 
-- `src/app` — telas (expo-router): Conexão, Controle (Direcional / Touchpad / Teclado) e Diagnóstico, com modo demonstração.
+- `src/app` — telas (expo-router): Conexão (`index`), Controle (`remote`: selo do projetor, temporizador, configurações e desligar na barra superior; abas Controle / Teclado / Apps) e Configurações e Diagnóstico (tema, vibração, telemetria). UI com `react-native-ui-lib`; tokens de cor, raio e espaçamento em `src/theme`.
 - `src/services/adb` — máquina de estados, fila serial, reconexão, heartbeat, construção segura de comandos e transporte simulado.
 - `modules/adb-bridge` — módulo nativo Kotlin sobre o [dadb](https://github.com/mobile-dev-inc/dadb) (Apache-2.0). A chave ADB é gerada no módulo e guardada cifrada com AES-GCM do Android Keystore.
+- `tools/projector-helper` — classes Java que rodam no projetor (`app_process`): `AppLister` (apps com nome e ícone) e `Paste` (digita colando, porque o firmware transforma a tecla "a" no aviso do controle de voz). `build.sh` gera `src/services/adb/helperDex.ts`; rode de novo se editar um `.java`.
 - `tests` — testes Jest (validação, comandos e cliente com transporte simulado).
 
 ## Comandos
@@ -32,5 +33,4 @@ O HY300 vem com `ro.adb.secure=0`: entrega shell root a qualquer aparelho da mes
 ## Pendências conhecidas
 
 - Módulo Kotlin e APK ainda não compilados/testados em aparelho.
-- Lint: `react-hooks/refs` em `src/components/VirtualTouchpad.tsx` (PanResponder dentro de `useMemo` lê refs).
 - Cancelar durante a negociação: a thread nativa só termina no timeout (20 s).

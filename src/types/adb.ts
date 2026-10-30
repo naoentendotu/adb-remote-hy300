@@ -37,7 +37,13 @@ export interface DeviceInfo {
   isRoot: boolean;
   model: string;
   sdk: number;
-  screen: { width: number; height: number } | null;
   /** evdev node of the IR receiver when writable: fast key path. null = `input keyevent` fallback. */
   irDevice: string | null;
+}
+
+export interface InstalledApp {
+  pkg: string;
+  label: string;
+  /** data: URI of the launcher icon as rendered by the projector. */
+  icon: string;
 }

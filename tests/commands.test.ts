@@ -1,15 +1,13 @@
 import {
+  parseAppList,
   ANDROID_KEYCODES,
   IR_LINUX_KEYCODES,
   evdevPressCommand,
   inputTextCommands,
   keyEventCommand,
   parseInputDevices,
-  parseWmSize,
   shellQuote,
   stripAccents,
-  swipeCommand,
-  tapCommand,
 } from '@/services/adb/AdbCommands';
 
 /** Reimplementation of Android 9 Input.sendText's "%s" handling, to check what the device would type. */
@@ -36,8 +34,13 @@ function unquote(cmd: string): string {
   return m[1].replace(/'([^']*)'|\\'/g, (_, q) => (q === undefined ? "'" : q));
 }
 
+/** `… app_process / dev.hy300.helper.Paste <base64>` → pasted text; the argument must be pure base64. */
+const PASTE_RE = / app_process \/ dev\.hy300\.helper\.Paste ([A-Za-z0-9+/]+=*)$/;
+
 const typed = (text: string, mode: 'whole' | 'char' = 'whole') =>
-  inputTextCommands(text, mode).map((c) => android9SendText(unquote(c))).join('');
+  inputTextCommands(text, mode)
+    .map((c) => (PASTE_RE.test(c) ? atob(PASTE_RE.exec(c)![1]) : android9SendText(unquote(c))))
+    .join('');
 
 describe('key mapping', () => {
   it('uses the documented Android keycodes', () => {
@@ -91,13 +94,27 @@ describe('inputTextCommands', () => {
   });
 
   it('never lets text escape the quoted argument', () => {
-    for (const cmd of inputTextCommands("a'; reboot; echo '", 'whole')) {
-      expect(cmd).toMatch(/^input text (?:'[^']*'|\\')+$/);
+    for (const text of ["x'; reboot; echo '", "a'; reboot; echo '"]) {
+      for (const cmd of inputTextCommands(text, 'whole')) {
+        expect(PASTE_RE.test(cmd) || /^input text (?:'[^']*'|\\')+$/.test(cmd)).toBe(true);
+      }
     }
   });
 
   it('sends one command per character in char mode', () => {
-    expect(inputTextCommands('ab c', 'char')).toEqual(["input text 'a'", "input text 'b'", "input text '%s'", "input text 'c'"]);
+    expect(inputTextCommands('xy z', 'char')).toEqual(["input text 'x'", "input text 'y'", "input text '%s'", "input text 'z'"]);
+  });
+
+  it('pastes text with an "a" in one command, as KEYCODE_A opens the firmware voice pop-up', () => {
+    for (const mode of ['whole', 'char'] as const) {
+      const cmds = inputTextCommands('Abc a', mode);
+      expect(cmds).toHaveLength(1);
+      expect(cmds[0]).toMatch(PASTE_RE);
+    }
+  });
+
+  it('types an "a" normally on the HY320, which has no voice pop-up', () => {
+    expect(inputTextCommands('a b', 'whole', false)).toEqual(["input text 'a%sb'"]);
   });
 
   it('rejects characters Android 9 cannot type, listing them', () => {
@@ -116,14 +133,6 @@ describe('inputTextCommands', () => {
   it('shellQuote escapes single quotes', () => expect(shellQuote("a'b")).toBe(`'a'\\''b'`));
 });
 
-describe('tap / swipe', () => {
-  it('builds integer-only commands', () => {
-    expect(tapCommand(640, 360)).toBe('input tap 640 360');
-    expect(swipeCommand(0, 0, 100, 200, 300)).toBe('input swipe 0 0 100 200 300');
-  });
-  it.each([[NaN, 1], [1.5, 1], [-1, 1], [1, 99999]])('rejects %p,%p', (x, y) => expect(() => tapCommand(x, y)).toThrow());
-});
-
 describe('parsers', () => {
   it('parses /proc/bus/input/devices', () => {
     const text =
@@ -132,11 +141,6 @@ describe('parsers', () => {
       { name: 'ff200010.pwm', path: '/dev/input/event0' },
       { name: 'ATK8baxx', path: '/dev/input/event2' },
     ]);
-  });
-  it('prefers the override size from wm size', () => {
-    expect(parseWmSize('Physical size: 1024x600\nOverride size: 1280x720')).toEqual({ width: 1280, height: 720 });
-    expect(parseWmSize('Physical size: 1920x1080')).toEqual({ width: 1920, height: 1080 });
-    expect(parseWmSize('')).toBeNull();
   });
 });
 
@@ -158,5 +162,28 @@ describe('apps / timer / store', () => {
     expect(() => scheduleSleepCommand(0)).toThrow();
     expect(() => scheduleSleepCommand(1.5)).toThrow();
     expect(storeSearchCommand("vlc'; reboot")).toBe("am start -a android.intent.action.VIEW -d 'market://search?q=vlc'\\''%3B%20reboot&c=apps'");
+  });
+  it('reads the sleep timer status, with or without the recorded length', () => {
+    const { parseSleepStatus } = jest.requireActual('@/services/adb/AdbCommands');
+    expect(parseSleepStatus('1000 1800 400\n')).toEqual({ remaining: 600, total: 1800 });
+    expect(parseSleepStatus('1000 400')).toEqual({ remaining: 600, total: null });
+    expect(parseSleepStatus('400')).toBeNull();
+    expect(parseSleepStatus('300 1800 400')).toBeNull();
+  });
+  it('confirms the power-off prompt with OK, only while the screen is awake', () => {
+    const { POWER_OFF_COMMAND } = jest.requireActual('@/services/adb/AdbCommands');
+    const confirm = 'input keyevent 26; sleep 2; dumpsys power | grep -q mWakefulness=Awake && input keyevent 23';
+    expect(POWER_OFF_COMMAND).toBe(`setsid sh -c '${confirm}' </dev/null >/dev/null 2>&1 &`);
+    expect(scheduleSleepCommand(30)).toContain(`sleep 1800; dumpsys power | grep -q mWakefulness=Awake && { ${confirm}; };`);
+  });
+});
+
+describe('parseAppList', () => {
+  it('parses AppLister lines, drops malformed ones and sorts by name', () => {
+    const out = 'org.smarttube.stable\tSmartTube\tiVBORw0K\r\nbad line\ncom.disney.disneyplus\tDisney+\tAAA=\nx.y\tEvil\t$(reboot)\n';
+    expect(parseAppList(out)).toEqual([
+      { pkg: 'com.disney.disneyplus', label: 'Disney+', icon: 'data:image/png;base64,AAA=' },
+      { pkg: 'org.smarttube.stable', label: 'SmartTube', icon: 'data:image/png;base64,iVBORw0K' },
+    ]);
   });
 });

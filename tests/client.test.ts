@@ -1,4 +1,5 @@
 import { AdbClient, type ClientOptions } from '@/services/adb/AdbClient';
+import { launchAppCommand } from '@/services/adb/AdbCommands';
 import { AdbError } from '@/services/adb/AdbErrors';
 import { MockAdbTransport } from '@/services/adb/MockAdbTransport';
 import type { ConnectionStatus } from '@/types/adb';
@@ -38,7 +39,7 @@ describe('connection', () => {
     await client.connect('192.168.0.10', '5555');
     expect(statuses).toEqual(['checking-network', 'connecting', 'connected']);
     expect(client.getState().info).toEqual({
-      uid: 0, isRoot: true, model: 'HY300', sdk: 28, screen: { width: 1280, height: 720 }, irDevice: '/dev/input/event0',
+      uid: 0, isRoot: true, model: 'HY300', sdk: 28, irDevice: '/dev/input/event0',
     });
     await client.disconnect();
   });
@@ -143,8 +144,8 @@ describe('commands', () => {
     const { client, transport } = setup();
     await client.connect('192.168.0.10', 5555);
     transport.commands = [];
-    await Promise.all([client.pressKey('left'), client.sendText('a b', 'whole'), client.tap(0.5, 0.5), client.pressKey('recents')]);
-    expect(transport.commands.slice(1)).toEqual(["input text 'a%sb'", 'input tap 640 360', 'input keyevent 187']);
+    await Promise.all([client.pressKey('left'), client.sendText('x y', 'whole'), client.pressKey('recents'), client.launchApp('org.smarttube.stable')]);
+    expect(transport.commands.slice(1)).toEqual(["input text 'x%sy'", 'input keyevent 187', launchAppCommand('org.smarttube.stable')]);
     await client.disconnect();
   });
 
@@ -158,21 +159,13 @@ describe('commands', () => {
   });
 
   it('maps a non-zero exit code to COMMAND_FAILED without dropping the session', async () => {
-    const { client } = setup({ exec: (c) => (c.startsWith('input tap') ? { stdout: '', stderr: 'boom', exitCode: 1 } : undefined) });
+    const { client } = setup({ exec: (c) => (c.startsWith('input keyevent') ? { stdout: '', stderr: 'boom', exitCode: 1 } : undefined) });
     await client.connect('192.168.0.10', 5555);
-    await expect(client.tap(0, 0)).rejects.toMatchObject({ code: 'COMMAND_FAILED', message: 'boom' });
+    await expect(client.pressKey('recents')).rejects.toMatchObject({ code: 'COMMAND_FAILED', message: 'boom' });
     expect(client.getState().status).toBe('connected');
     await client.disconnect();
   });
 
-  it('maps normalized touchpad coordinates to the projector resolution', async () => {
-    const { client, transport } = setup();
-    await client.connect('192.168.0.10', 5555);
-    transport.commands = [];
-    await client.swipe(0, 0, 1, 1, 10_000);
-    expect(transport.commands).toEqual(['input swipe 0 0 1279 719 2000']);
-    await client.disconnect();
-  });
 });
 
 describe('link loss', () => {

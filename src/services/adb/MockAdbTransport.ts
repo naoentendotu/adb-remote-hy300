@@ -19,7 +19,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 function hy300Reply(command: string): ExecResult {
   if (command.startsWith('id -u')) {
     return ok(
-      '0\nHY300\n28\nPhysical size: 1024x600\nOverride size: 1280x720\n---\n' +
+      '0\nHY300\n28\n---\n' +
         'I: Bus=0019\nN: Name="ff200010.pwm"\nH: Handlers=event0 dmcfreq keychord cpufreq\n\n' +
         'I: Bus=0019\nN: Name="rk29-keypad"\nH: Handlers=event1 dmcfreq keychord cpufreq\n',
     );

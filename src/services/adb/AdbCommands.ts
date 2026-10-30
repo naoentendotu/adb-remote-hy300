@@ -1,6 +1,7 @@
-import type { RemoteKey, TextMode } from '@/types/adb';
+import type { InstalledApp, RemoteKey, TextMode } from '@/types/adb';
 
 import { AdbError } from './AdbErrors';
+import { HELPER_DEX } from './helperDex';
 
 /** android.view.KeyEvent codes, used by the `input keyevent` path. */
 export const ANDROID_KEYCODES: Record<RemoteKey, number> = {
@@ -107,11 +108,14 @@ export function unsupportedChars(text: string): string[] {
  * for a literal "%s", so spaces are encoded as %s and a literal '%' followed by 's' is split across
  * two commands. Every chunk is single-quoted, so nothing in the text reaches the shell as syntax.
  */
-export function inputTextCommands(text: string, mode: TextMode): string[] {
+export function inputTextCommands(text: string, mode: TextMode, pasteA = true): string[] {
   const bad = unsupportedChars(text);
   if (bad.length) {
     throw new AdbError('UNSUPPORTED_TEXT', `Caracteres não suportados pelo "input text" do Android 9: ${bad.join(' ')}`);
   }
+  // HY300 firmware turns KEYCODE_A into its "voice remote" pop-up, which steals focus mid-text: paste instead.
+  // The HY320 does not, so it types normally. Text is printable ASCII here, so btoa works; base64 is shell-safe unquoted.
+  if (pasteA && /a/i.test(text)) return [helperCommand('Paste', btoa(text))];
   const chunks: string[] = [];
   let cur = '';
   for (const c of text) {
@@ -128,24 +132,6 @@ export function inputTextCommands(text: string, mode: TextMode): string[] {
 const assertInt = (name: string, v: number, min: number, max: number) => {
   if (!Number.isInteger(v) || v < min || v > max) throw new AdbError('INVALID_ARGUMENT', `${name}=${v}`);
 };
-
-export function tapCommand(x: number, y: number): string {
-  assertInt('x', x, 0, 8192);
-  assertInt('y', y, 0, 8192);
-  return `input tap ${x} ${y}`;
-}
-
-export function swipeCommand(x1: number, y1: number, x2: number, y2: number, durationMs: number): string {
-  [x1, y1, x2, y2].forEach((v, i) => assertInt(`p${i}`, v, 0, 8192));
-  assertInt('durationMs', durationMs, 1, 5000);
-  return `input swipe ${x1} ${y1} ${x2} ${y2} ${durationMs}`;
-}
-
-/** `wm size` output → effective size (override wins, as that is the coordinate space `input tap` uses). */
-export function parseWmSize(text: string): { width: number; height: number } | null {
-  const m = /Override size: (\d+)x(\d+)/.exec(text) ?? /Physical size: (\d+)x(\d+)/.exec(text);
-  return m ? { width: Number(m[1]), height: Number(m[2]) } : null;
-}
 
 const PACKAGE_RE = /^[a-zA-Z][\w]*(\.[a-zA-Z][\w]*)+$/;
 
@@ -175,15 +161,21 @@ export function forceStopCommand(pkg: string): string {
 
 const SLEEP_FILE = '/data/local/tmp/remote-adb-sleep';
 
+/** Power, then OK on the HY300's "power off?" prompt, which only exists while the screen is still awake. */
+const POWER_OFF = 'input keyevent 26; sleep 2; dumpsys power | grep -q mWakefulness=Awake && input keyevent 23';
+
+/** Detached (setsid) so it finishes even when the ADB session drops as the projector goes down. */
+export const POWER_OFF_COMMAND = `setsid sh -c '${POWER_OFF}' </dev/null >/dev/null 2>&1 &`;
+
 /**
  * Runs on the projector, detached from the ADB session (setsid), so it fires even with the phone
- * off. Sends Power only if the screen is still awake, so it can never wake a projector in standby.
+ * off. Powers off only if the screen is still awake, so it can never wake a projector in standby.
  */
 export function scheduleSleepCommand(minutes: number): string {
   assertInt('minutes', minutes, 1, 600);
   return (
-    `${cancelSleepCommand()}; echo $(( $(date +%s) + ${minutes * 60} )) > ${SLEEP_FILE}.at; ` +
-    `setsid sh -c 'sleep ${minutes * 60}; dumpsys power | grep -q mWakefulness=Awake && input keyevent 26; rm -f ${SLEEP_FILE}.*' ` +
+    `${cancelSleepCommand()}; echo $(( $(date +%s) + ${minutes * 60} )) ${minutes * 60} > ${SLEEP_FILE}.at; ` +
+    `setsid sh -c 'sleep ${minutes * 60}; dumpsys power | grep -q mWakefulness=Awake && { ${POWER_OFF}; }; rm -f ${SLEEP_FILE}.*' ` +
     `</dev/null >/dev/null 2>&1 & echo $! > ${SLEEP_FILE}.pid`
   );
 }
@@ -193,12 +185,45 @@ export function cancelSleepCommand(): string {
   return `[ -f ${SLEEP_FILE}.pid ] && kill -TERM -$(cat ${SLEEP_FILE}.pid) 2>/dev/null; rm -f ${SLEEP_FILE}.*; true`;
 }
 
-/** Prints "<due epoch> <now epoch>" when a timer is alive, or just "<now epoch>". */
+/** Prints "<due epoch> <total s> <now epoch>" when a timer is alive, or just "<now epoch>". */
 export const SLEEP_STATUS_COMMAND = `[ -f ${SLEEP_FILE}.pid ] && kill -0 $(cat ${SLEEP_FILE}.pid) 2>/dev/null && printf '%s ' $(cat ${SLEEP_FILE}.at); date +%s`;
+
+export interface SleepStatus {
+  remaining: number;
+  /** Timer length in seconds; null for a timer set by an older version that did not record it. */
+  total: number | null;
+}
+
+/** Reads SLEEP_STATUS_COMMAND output. Uses the projector's own clock on both ends, so phone clock skew does not matter. */
+export function parseSleepStatus(stdout: string): SleepStatus | null {
+  const n = stdout.trim().split(/\s+/).map(Number);
+  const now = n[n.length - 1];
+  const due = n[0];
+  if (n.length < 2 || !(due > now)) return null;
+  return { remaining: due - now, total: n.length === 3 ? n[1] : null };
+}
 
 /** Opens the Play Store search on the projector; the user installs from there. */
 export function storeSearchCommand(query: string): string {
   const q = query.trim();
   if (!q || q.length > 60) throw new AdbError('INVALID_ARGUMENT', 'Informe um nome de app (até 60 caracteres).');
   return `am start -a android.intent.action.VIEW -d ${shellQuote(`market://search?q=${encodeURIComponent(q)}&c=apps`)}`;
+}
+
+const HELPER_PATH = '/data/local/tmp/hy300-helper.dex';
+
+/** Writes the bundled helper dex (tools/projector-helper; rewritten each time so a stale copy never runs) and runs one of its classes. */
+const helperCommand = (cls: 'AppLister' | 'Paste', arg = '') =>
+  `echo ${HELPER_DEX} | base64 -d > ${HELPER_PATH} && CLASSPATH=${HELPER_PATH} app_process / dev.hy300.helper.${cls} ${arg}`;
+
+export const LIST_APPS_COMMAND = helperCommand('AppLister');
+
+/** AppLister lines `pkg\tlabel\tbase64png` → apps sorted by name; malformed lines are dropped. */
+export function parseAppList(text: string): InstalledApp[] {
+  return text
+    .split('\n')
+    .map((line) => line.trim().split('\t'))
+    .filter(([pkg = '', , icon = '']) => PACKAGE_RE.test(pkg) && /^[A-Za-z0-9+/]+=*$/.test(icon))
+    .map(([pkg, label, icon]) => ({ pkg, label: label || pkg, icon: `data:image/png;base64,${icon}` }))
+    .sort((a, b) => a.label.localeCompare(b.label));
 }

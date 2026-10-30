@@ -1,9 +1,13 @@
-import type { ConnectionStatus, DeviceInfo, ExecResult, RemoteKey, TextMode } from '@/types/adb';
+import type { ConnectionStatus, DeviceInfo, ExecResult, InstalledApp, RemoteKey, TextMode } from '@/types/adb';
 
 import {
   FOREGROUND_COMMAND,
+  LIST_APPS_COMMAND,
+  POWER_OFF_COMMAND,
+  parseAppList,
   IR_DEVICE_NAME,
   SLEEP_STATUS_COMMAND,
+  parseSleepStatus,
   cancelSleepCommand,
   forceStopCommand,
   launchAppCommand,
@@ -16,9 +20,6 @@ import {
   inputTextCommands,
   keyEventCommand,
   parseInputDevices,
-  parseWmSize,
-  swipeCommand,
-  tapCommand,
 } from './AdbCommands';
 import { AdbError, LINK_ERRORS, toAdbError } from './AdbErrors';
 import type { AdbTransport } from './AdbTransport';
@@ -201,10 +202,10 @@ export class AdbClient {
   }
 
   /** Validates up front so unsupported text fails immediately instead of after earlier chunks were typed. */
-  sendText(text: string, mode: TextMode) {
+  sendText(text: string, mode: TextMode, pasteA = true) {
     let commands: string[];
     try {
-      commands = inputTextCommands(text, mode);
+      commands = inputTextCommands(text, mode, pasteA);
     } catch (e) {
       return Promise.reject(e);
     }
@@ -214,21 +215,9 @@ export class AdbClient {
     });
   }
 
-  /** Coordinates normalized to 0..1 of the projector screen. */
-  tap(nx: number, ny: number) {
-    return this.run(() => {
-      const [x, y] = this.toScreen(nx, ny);
-      return this.execVoid(tapCommand(x, y));
-    });
-  }
-
-  swipe(nx1: number, ny1: number, nx2: number, ny2: number, durationMs: number) {
-    return this.run(() => {
-      const [x1, y1] = this.toScreen(nx1, ny1);
-      const [x2, y2] = this.toScreen(nx2, ny2);
-      const ms = Math.round(Math.min(Math.max(durationMs, 50), 2000));
-      return this.execVoid(swipeCommand(x1, y1, x2, y2, ms));
-    });
+  /** Launchable apps with the label and icon the projector itself shows (~3 s). */
+  listApps(): Promise<InstalledApp[]> {
+    return this.run(async () => parseAppList((await this.execChecked(LIST_APPS_COMMAND)).stdout));
   }
 
   launchApp(pkg: string) {
@@ -254,12 +243,14 @@ export class AdbClient {
     return this.run(() => this.execVoid(cancelSleepCommand()));
   }
 
-  /** Seconds until the projector's sleep timer fires, or null when none is set. */
-  sleepRemaining() {
-    return this.run(async () => {
-      const [due, now] = (await this.execChecked(SLEEP_STATUS_COMMAND)).stdout.trim().split(/s+/).map(Number);
-      return now !== undefined && due > now ? due - now : null;
-    });
+  /** Power off now, confirming the projector's own prompt. The connection drops right after. */
+  powerOff() {
+    return this.run(() => this.execVoid(POWER_OFF_COMMAND));
+  }
+
+  /** The projector's sleep timer, or null when none is set. */
+  sleepStatus() {
+    return this.run(async () => parseSleepStatus((await this.execChecked(SLEEP_STATUS_COMMAND)).stdout));
   }
 
   openStoreSearch(query: string) {
@@ -283,13 +274,6 @@ export class AdbClient {
   async resetKey() {
     await this.disconnect();
     await this.transport.resetKey();
-  }
-
-  private toScreen(nx: number, ny: number): [number, number] {
-    const s = this.state.info?.screen;
-    if (!s) throw new AdbError('INVALID_ARGUMENT', 'Resolução da tela do projetor desconhecida.');
-    const clamp = (v: number) => Math.min(Math.max(v, 0), 1);
-    return [Math.round(clamp(nx) * (s.width - 1)), Math.round(clamp(ny) * (s.height - 1))];
   }
 
   /** Serializes commands; a failed link error starts a reconnect unless the session was cancelled meanwhile. */
@@ -323,10 +307,10 @@ export class AdbClient {
 
   private async readDeviceInfo(): Promise<DeviceInfo> {
     const r = await this.execChecked(
-      'id -u; getprop ro.product.model; getprop ro.build.version.sdk; wm size; echo ---; cat /proc/bus/input/devices',
+      'id -u; getprop ro.product.model; getprop ro.build.version.sdk; echo ---; cat /proc/bus/input/devices',
     );
     const [head, devices = ''] = r.stdout.split(/^---$/m);
-    const [uid, model, sdk, ...wm] = head.split(/\r?\n/);
+    const [uid, model, sdk] = head.split(/\r?\n/);
     let irDevice = parseInputDevices(devices).find((d) => d.name === IR_DEVICE_NAME)?.path ?? null;
     if (irDevice) {
       const w = await this.transport.exec(`test -w ${irDevice} && echo w`);
@@ -337,7 +321,6 @@ export class AdbClient {
       isRoot: uid?.trim() === '0',
       model: model?.trim() ?? '',
       sdk: Number(sdk),
-      screen: parseWmSize(wm.join('\n')),
       irDevice,
     };
   }

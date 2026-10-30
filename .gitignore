@@ -51,3 +51,7 @@ local.properties
 # Local notes and tool config
 HANDOFF.md
 .claude/
+
+# referências de design e screenshots locais
+docs/
+flow/

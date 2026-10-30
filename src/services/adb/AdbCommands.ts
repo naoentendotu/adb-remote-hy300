@@ -164,6 +164,14 @@ const SLEEP_FILE = '/data/local/tmp/remote-adb-sleep';
 /** Power, then OK on the HY300's "power off?" prompt, which only exists while the screen is still awake. */
 const POWER_OFF = 'input keyevent 26; sleep 2; dumpsys power | grep -q mWakefulness=Awake && input keyevent 23';
 
+/**
+ * Home, then force-stop the app that was on screen unless Home brought it back (it is the launcher).
+ * A foreground app (video player) kept the power-off prompt from taking the OK; this also leaves nothing running.
+ */
+const CLOSE_FOREGROUND =
+  'a=$(dumpsys activity activities | grep mResumedActivity | sed "s/.* u[0-9]* \\([^/]*\\)\\/.*/\\1/"); input keyevent 3; sleep 1; ' +
+  '[ -n "$a" ] && ! dumpsys activity activities | grep mResumedActivity | grep -q " $a/" && am force-stop $a';
+
 /** Detached (setsid) so it finishes even when the ADB session drops as the projector goes down. */
 export const POWER_OFF_COMMAND = `setsid sh -c '${POWER_OFF}' </dev/null >/dev/null 2>&1 &`;
 
@@ -175,7 +183,7 @@ export function scheduleSleepCommand(minutes: number): string {
   assertInt('minutes', minutes, 1, 600);
   return (
     `${cancelSleepCommand()}; echo $(( $(date +%s) + ${minutes * 60} )) ${minutes * 60} > ${SLEEP_FILE}.at; ` +
-    `setsid sh -c 'sleep ${minutes * 60}; dumpsys power | grep -q mWakefulness=Awake && { ${POWER_OFF}; }; rm -f ${SLEEP_FILE}.*' ` +
+    `setsid sh -c 'sleep ${minutes * 60}; dumpsys power | grep -q mWakefulness=Awake && { ${CLOSE_FOREGROUND}; ${POWER_OFF}; }; rm -f ${SLEEP_FILE}.*' ` +
     `</dev/null >/dev/null 2>&1 & echo $! > ${SLEEP_FILE}.pid`
   );
 }

@@ -174,7 +174,8 @@ describe('apps / timer / store', () => {
     const { POWER_OFF_COMMAND } = jest.requireActual('@/services/adb/AdbCommands');
     const confirm = 'input keyevent 26; sleep 2; dumpsys power | grep -q mWakefulness=Awake && input keyevent 23';
     expect(POWER_OFF_COMMAND).toBe(`setsid sh -c '${confirm}' </dev/null >/dev/null 2>&1 &`);
-    expect(scheduleSleepCommand(30)).toContain(`sleep 1800; dumpsys power | grep -q mWakefulness=Awake && { ${confirm}; };`);
+    expect(scheduleSleepCommand(30)).toMatch(/sleep 1800; dumpsys power \| grep -q mWakefulness=Awake && \{ a=\$\(.*am force-stop \$a; /);
+    expect(scheduleSleepCommand(30)).toContain(`am force-stop $a; ${confirm}; };`);
   });
 });
 

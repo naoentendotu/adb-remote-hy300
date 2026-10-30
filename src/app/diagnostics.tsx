@@ -1,15 +1,25 @@
 import { useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Button, Card, Switch, Text, View } from 'react-native-ui-lib';
+import Moon from 'lucide-react-native/icons/moon';
+import Sun from 'lucide-react-native/icons/sun';
 
+import { SavedProjector } from '@/components/SavedProjector';
+import { uiIcon } from '@/components/uiIcon';
 import { useAdbConnection } from '@/hooks/useAdbConnection';
 import { describeError, toAdbError } from '@/services/adb/AdbErrors';
-import { STATUS_LABEL, colors, radius } from '@/theme';
+import { CARD_GAP, MONO, SCREEN_PAD, STATUS_LABEL, radius, useScheme, useThemed, type Colors } from '@/theme';
 
 export default function DiagnosticsScreen() {
-  const { client, state, demo } = useAdbConnection();
+  const { colors, styles } = useThemed(makeStyles);
+  const insets = useSafeAreaInsets();
+  const scheme = useScheme();
+  const { client, state, demo, settings, updateSettings } = useAdbConnection();
   const [pinging, setPinging] = useState(false);
   const [pingError, setPingError] = useState<string | null>(null);
   const info = state.info;
+  const connected = state.status === 'connected';
 
   const ping = async () => {
     setPinging(true);
@@ -25,32 +35,86 @@ export default function DiagnosticsScreen() {
       [{ text: 'Cancelar', style: 'cancel' }, { text: 'Gerar nova chave', style: 'destructive', onPress: () => client.resetKey().catch(() => {}) }],
     );
 
-  const rows: [string, string][] = [
-    ['Modo', demo ? 'Demonstração (ADB simulado)' : 'ADB real'],
-    ['Estado', STATUS_LABEL[state.status]],
-    ['Endereço', state.host ? `${state.host}:${state.port}` : '—'],
-    ['Último erro', state.error ? describeError(state.error) : '—'],
-    ['Latência (eco no shell)', state.latencyMs !== undefined ? `${state.latencyMs} ms` : '—'],
-    ['Modelo / API', info ? `${info.model} / ${info.sdk}` : '—'],
-    ['Privilégio do shell ADB', info ? (info.isRoot ? `root (uid ${info.uid})` : `sem root (uid ${info.uid})`) : '—'],
-    ['Resolução usada pelo touchpad', info?.screen ? `${info.screen.width}×${info.screen.height}` : 'desconhecida'],
-    ['Envio de teclas', info ? (info.irDevice ? `rápido via ${info.irDevice} (receptor IR)` : 'input keyevent (~1 s por tecla)') : '—'],
-  ];
+  const themeOption = (value: 'dark' | 'light', label: string, icon: typeof Sun) => {
+    const on = scheme === value;
+    const fg = on ? colors.onPrimaryContainer : colors.textMuted;
+    return (
+      <View flex>
+        <Button
+          label={label}
+          iconSource={uiIcon(icon, fg, 18, 6)}
+          backgroundColor={on ? colors.primaryContainer : 'transparent'}
+          color={fg}
+          borderRadius={radius.full}
+          style={styles.segment}
+          labelStyle={styles.segmentLabel}
+          accessibilityRole="button"
+          accessibilityState={{ selected: on }}
+          onPress={() => updateSettings({ theme: value })}
+        />
+      </View>
+    );
+  };
+
+  const metric = (label: string, value: string, mono = false) => (
+    <View flex gap-s1 style={styles.metric}>
+      <Text style={styles.key}>{label}</Text>
+      <Text style={[styles.value, mono && styles.mono]}>{value}</Text>
+    </View>
+  );
 
   return (
-    <ScrollView contentContainerStyle={styles.page}>
-      <View style={styles.card}>
-        {rows.map(([k, v]) => (
-          <View key={k} style={styles.row}>
-            <Text style={styles.key}>{k}</Text>
-            <Text style={styles.value}>{v}</Text>
+    <ScrollView style={styles.screen} contentContainerStyle={[styles.page, { paddingBottom: insets.bottom + 32 }]}>
+      <Text style={styles.section}>Preferências</Text>
+      <Card padding-s4 gap-s4 enableShadow={false} borderRadius={radius.md} style={styles.card}>
+        <View gap-s2>
+          <Text style={styles.rowLabel}>Tema</Text>
+          <View row style={styles.segments}>
+            {themeOption('dark', 'Escuro', Moon)}
+            {themeOption('light', 'Claro', Sun)}
           </View>
-        ))}
-      </View>
-      <Pressable accessibilityRole="button" disabled={state.status !== 'connected' || pinging} onPress={ping} style={({ pressed }) => [styles.button, pressed && styles.pressed, (state.status !== 'connected' || pinging) && styles.disabled]}>
-        <Text style={styles.buttonText}>{pinging ? 'Medindo…' : 'Medir latência'}</Text>
-      </Pressable>
-      {pingError && <Text style={styles.error}>{pingError}</Text>}
+        </View>
+        <View row centerV gap-s3>
+          <View flex>
+            <Text style={styles.rowLabel}>Vibração ao tocar</Text>
+            <Text style={styles.key}>Resposta tátil nos botões do controle.</Text>
+          </View>
+          <Switch
+            value={settings.haptics}
+            onValueChange={(v: boolean) => updateSettings({ haptics: v })}
+            onColor={colors.primary}
+            offColor={colors.outline}
+            accessibilityLabel="Vibração ao tocar"
+          />
+        </View>
+      </Card>
+
+      <Text style={styles.section}>Dispositivo</Text>
+      <SavedProjector />
+
+      <Card padding-s4 gap-s3 enableShadow={false} borderRadius={radius.md} style={styles.card}>
+        <View row gap-s3>
+          {metric('Modo', demo ? 'Demonstração' : 'ADB real')}
+          {metric('Estado', STATUS_LABEL[state.status])}
+        </View>
+        <View row gap-s3>
+          <View flex gap-s1 style={styles.metric}>
+            <Text style={styles.key}>Latência</Text>
+            <View row centerV spread>
+              <Text style={[styles.value, styles.mono]}>{state.latencyMs !== undefined ? `${state.latencyMs} ms` : '—'}</Text>
+              <Button link label={pinging ? 'Medindo…' : 'Medir'} linkColor={colors.primary} labelStyle={styles.link} disabled={!connected || pinging} onPress={ping} />
+            </View>
+          </View>
+          {metric('Modelo / API', info ? `${info.model} / ${info.sdk}` : '—', true)}
+        </View>
+        <View row gap-s3>
+          {metric('Endereço', state.host ? `${state.host}:${state.port}` : '—', true)}
+          {metric('Shell ADB', info ? `${info.isRoot ? 'root' : 'sem root'} (uid ${info.uid})` : '—', true)}
+        </View>
+        {metric('Envio de teclas', info ? (info.irDevice ? `rápido via ${info.irDevice}` : 'input keyevent (~1 s por tecla)') : '—', true)}
+        {state.error && metric('Último erro', describeError(state.error))}
+        {pingError && <Text style={styles.error}>{pingError}</Text>}
+      </Card>
 
       <Text style={styles.section}>Segurança</Text>
       <Text style={styles.body}>
@@ -62,24 +126,35 @@ export default function DiagnosticsScreen() {
         Revogar este celular (em aparelhos que exigem autorização): no projetor, Configurações → Opções do desenvolvedor → Revogar
         autorizações de depuração USB. Por ADB, apague /data/misc/adb/adb_keys. Use também “Gerar nova chave” abaixo.
       </Text>
-      <Pressable accessibilityRole="button" onPress={resetKey} style={({ pressed }) => [styles.button, pressed && styles.pressed]}>
-        <Text style={[styles.buttonText, { color: colors.danger }]}>Gerar nova chave ADB</Text>
-      </Pressable>
+      <Button
+        label="Gerar nova chave ADB"
+        size={Button.sizes.large}
+        borderRadius={radius.full}
+        backgroundColor={colors.dangerContainer}
+        color={colors.danger}
+        style={styles.danger}
+        onPress={resetKey}
+      />
     </ScrollView>
   );
 }
 
-const styles = StyleSheet.create({
-  page: { padding: 20, gap: 14, paddingBottom: 48 },
-  card: { backgroundColor: colors.surface, borderRadius: radius.md, paddingHorizontal: 16 },
-  row: { paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.outline, gap: 2 },
-  key: { color: colors.textMuted, fontSize: 13 },
-  value: { color: colors.text, fontSize: 15 },
-  section: { color: colors.textMuted, fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 12 },
-  body: { color: colors.text, fontSize: 14, lineHeight: 21 },
-  button: { borderRadius: radius.full, paddingVertical: 14, alignItems: 'center', borderWidth: 1, borderColor: colors.outline },
-  buttonText: { color: colors.text, fontWeight: '600', fontSize: 15 },
-  pressed: { opacity: 0.8 },
-  disabled: { opacity: 0.4 },
-  error: { color: colors.danger, fontSize: 14 },
-});
+const makeStyles = (colors: Colors) =>
+  StyleSheet.create({
+    screen: { backgroundColor: colors.background },
+    page: { paddingHorizontal: SCREEN_PAD, paddingTop: 12, gap: CARD_GAP },
+    section: { color: colors.text, fontSize: 16, fontWeight: '600', marginTop: 8 },
+    card: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.outline },
+    rowLabel: { color: colors.text, fontSize: 15, fontWeight: '600' },
+    segments: { gap: 4, padding: 3, borderRadius: radius.sm, backgroundColor: colors.surfaceHigh },
+    segment: { height: 40 },
+    segmentLabel: { fontSize: 14, fontWeight: '600' },
+    metric: { backgroundColor: colors.surfaceHigh, borderRadius: radius.sm, padding: 12 },
+    key: { color: colors.textMuted, fontSize: 12 },
+    value: { color: colors.text, fontSize: 15 },
+    mono: { fontFamily: MONO, fontSize: 14 },
+    link: { fontSize: 13, fontWeight: '600' },
+    body: { color: colors.text, fontSize: 14, lineHeight: 21 },
+    error: { color: colors.danger, fontSize: 14 },
+    danger: { borderWidth: 1, borderColor: colors.dangerOutline },
+  });

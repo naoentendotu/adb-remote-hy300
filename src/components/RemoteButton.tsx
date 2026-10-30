@@ -1,10 +1,11 @@
-import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
-import type { ComponentProps } from 'react';
-import { Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
+import type { LucideIcon } from 'lucide-react-native';
+import { StyleSheet, type StyleProp, type ViewStyle } from 'react-native';
+import { Button, Text, View } from 'react-native-ui-lib';
 
-import { colors, radius } from '@/theme';
+import { uiIcon } from '@/components/uiIcon';
+import { useThemed, type Colors } from '@/theme';
 
-export type IconName = ComponentProps<typeof MaterialCommunityIcons>['name'];
+export type IconName = LucideIcon;
 
 interface Props {
   icon: IconName;
@@ -20,40 +21,28 @@ interface Props {
 }
 
 export function RemoteButton({ icon, label, accessibilityLabel, variant = 'tonal', size = 64, disabled, style, ...handlers }: Props) {
+  const { colors, styles } = useThemed(makeStyles);
   const filled = variant === 'filled';
   return (
-    <View style={[styles.wrap, style]}>
-      <Pressable
+    <View center gap-s2 style={style}>
+      <Button
         {...handlers}
+        round
         disabled={disabled}
-        accessibilityRole="button"
+        iconSource={uiIcon(icon, filled ? colors.onPrimary : colors.icon, Math.round(size * 0.42))}
+        backgroundColor={filled ? colors.primary : variant === 'tonal' ? colors.surfaceHigh : 'transparent'}
+        disabledBackgroundColor={colors.surfaceHigh}
+        style={[{ width: size, height: size }, disabled && styles.disabled]}
         accessibilityLabel={accessibilityLabel}
-        accessibilityState={{ disabled }}
         hitSlop={6}
-        style={({ pressed }) => [
-          styles.button,
-          { width: size, height: size },
-          variant === 'tonal' && styles.tonal,
-          filled && styles.filled,
-          pressed && (filled ? styles.filledPressed : styles.pressed),
-          pressed && styles.shrink,
-          disabled && styles.disabled,
-        ]}>
-        <MaterialCommunityIcons name={icon} size={Math.round(size * 0.42)} color={filled ? colors.onPrimary : colors.text} />
-      </Pressable>
+      />
       {label ? <Text style={styles.label}>{label}</Text> : null}
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  wrap: { alignItems: 'center', gap: 6 },
-  button: { borderRadius: radius.full, alignItems: 'center', justifyContent: 'center' },
-  tonal: { backgroundColor: colors.surfaceHigh },
-  filled: { backgroundColor: colors.primary },
-  pressed: { backgroundColor: colors.surfacePressed },
-  filledPressed: { opacity: 0.85 },
-  shrink: { transform: [{ scale: 0.94 }] },
-  disabled: { opacity: 0.35 },
-  label: { color: colors.textMuted, fontSize: 12 },
-});
+const makeStyles = (colors: Colors) =>
+  StyleSheet.create({
+    disabled: { opacity: 0.4 },
+    label: { color: colors.textMuted, fontSize: 12 },
+  });

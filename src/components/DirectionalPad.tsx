@@ -1,8 +1,12 @@
-import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { useEffect, useRef } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import type { LucideIcon } from 'lucide-react-native';
+import ChevronDown from 'lucide-react-native/icons/chevron-down';
+import ChevronLeft from 'lucide-react-native/icons/chevron-left';
+import ChevronRight from 'lucide-react-native/icons/chevron-right';
+import ChevronUp from 'lucide-react-native/icons/chevron-up';
 
-import { colors } from '@/theme';
+import { useThemed, type Colors } from '@/theme';
 import type { RemoteKey } from '@/types/adb';
 
 const REPEAT_DELAY_MS = 450;
@@ -23,6 +27,7 @@ interface Props {
  * (the projector never sees a key left "down").
  */
 export function DirectionalPad({ onKey, onLongKey, enabled, size = 280 }: Props) {
+  const { colors, styles } = useThemed(makeStyles);
   const held = useRef<RemoteKey | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const enabledRef = useRef(enabled);
@@ -55,7 +60,7 @@ export function DirectionalPad({ onKey, onLongKey, enabled, size = 280 }: Props)
     timer.current = setTimeout(loop, REPEAT_DELAY_MS);
   };
 
-  const arrow = (key: RemoteKey, icon: 'chevron-up' | 'chevron-down' | 'chevron-left' | 'chevron-right', label: string, pos: object) => (
+  const arrow = (key: RemoteKey, Icon: LucideIcon, label: string, pos: object) => (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
@@ -63,17 +68,21 @@ export function DirectionalPad({ onKey, onLongKey, enabled, size = 280 }: Props)
       onPressIn={() => start(key)}
       onPressOut={stop}
       style={({ pressed }) => [styles.arrow, { width: size * 0.34, height: size * 0.34 }, pos, pressed && styles.arrowPressed]}>
-      <MaterialCommunityIcons name={icon} size={size * 0.15} color={enabled ? colors.text : colors.textMuted} />
+      <Icon size={size * 0.14} color={enabled ? colors.icon : colors.textMuted} strokeWidth={2.25} />
     </Pressable>
   );
 
   const c = size * 0.33;
   return (
     <View style={[styles.ring, { width: size, height: size, borderRadius: size / 2 }, !enabled && styles.disabled]}>
-      {arrow('up', 'chevron-up', 'Cima', { top: 0, alignSelf: 'center' })}
-      {arrow('down', 'chevron-down', 'Baixo', { bottom: 0, alignSelf: 'center' })}
-      {arrow('left', 'chevron-left', 'Esquerda', { left: 0, top: size * 0.33 })}
-      {arrow('right', 'chevron-right', 'Direita', { right: 0, top: size * 0.33 })}
+      {/* Two diagonals = four dividers marking the up/right/down/left zones of the ring. */}
+      {[45, -45].map((deg) => (
+        <View key={deg} pointerEvents="none" style={[styles.divider, { width: size, transform: [{ rotate: `${deg}deg` }] }]} />
+      ))}
+      {arrow('up', ChevronUp, 'Cima', { top: 0, alignSelf: 'center' })}
+      {arrow('down', ChevronDown, 'Baixo', { bottom: 0, alignSelf: 'center' })}
+      {arrow('left', ChevronLeft, 'Esquerda', { left: 0, top: size * 0.33 })}
+      {arrow('right', ChevronRight, 'Direita', { right: 0, top: size * 0.33 })}
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="OK"
@@ -86,17 +95,20 @@ export function DirectionalPad({ onKey, onLongKey, enabled, size = 280 }: Props)
           { width: c * 1.15, height: c * 1.15, borderRadius: c },
           pressed && styles.centerPressed,
         ]}>
-        <MaterialCommunityIcons name="check" size={size * 0.12} color={colors.onPrimary} />
+        <Text style={styles.ok}>OK</Text>
       </Pressable>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  ring: { backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
-  disabled: { opacity: 0.4 },
-  arrow: { position: 'absolute', alignItems: 'center', justifyContent: 'center', borderRadius: 999 },
-  arrowPressed: { backgroundColor: colors.surfacePressed },
-  center: { backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
-  centerPressed: { opacity: 0.85, transform: [{ scale: 0.95 }] },
-});
+const makeStyles = (colors: Colors) =>
+  StyleSheet.create({
+    ring: { backgroundColor: colors.surfaceHigh, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+    divider: { position: 'absolute', height: 1, backgroundColor: colors.outline },
+    ok: { color: colors.onPrimary, fontSize: 18, fontWeight: '700' },
+    disabled: { opacity: 0.4 },
+    arrow: { position: 'absolute', alignItems: 'center', justifyContent: 'center', borderRadius: 999 },
+    arrowPressed: { backgroundColor: colors.surfacePressed },
+    center: { backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
+    centerPressed: { opacity: 0.85, transform: [{ scale: 0.95 }] },
+  });

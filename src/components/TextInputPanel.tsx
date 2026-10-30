@@ -1,11 +1,20 @@
 import { useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { StyleSheet } from 'react-native';
+import { Button, Chip, Text, View } from 'react-native-ui-lib';
+import ChevronDown from 'lucide-react-native/icons/chevron-down';
+import ChevronLeft from 'lucide-react-native/icons/chevron-left';
+import ChevronRight from 'lucide-react-native/icons/chevron-right';
+import ChevronUp from 'lucide-react-native/icons/chevron-up';
 
+import { Field } from '@/components/Field';
+import type { IconName } from '@/components/RemoteButton';
+import { uiIcon } from '@/components/uiIcon';
 import { useAdbConnection } from '@/hooks/useAdbConnection';
 import { stripAccents } from '@/services/adb/AdbCommands';
 import { describeError, toAdbError } from '@/services/adb/AdbErrors';
 import { pushHistory } from '@/services/storage/SettingsStorage';
-import { colors, radius } from '@/theme';
+import { radius, useThemed, type Colors } from '@/theme';
+import type { RemoteKey } from '@/types/adb';
 
 /** Keeps only what Android 9's `input text` can type: accents are dropped, anything else non-ASCII removed. */
 const typeable = (s: string) => stripAccents(s).replace(/[^\x20-\x7e]/g, '');
@@ -17,6 +26,7 @@ const typeable = (s: string) => stripAccents(s).replace(/[^\x20-\x7e]/g, '');
  * shortcut: assumes the projector's cursor is at the end (edits mid-text are sent as delete + retype).
  */
 export function TextInputPanel({ enabled }: { enabled: boolean }) {
+  const { colors, styles } = useThemed(makeStyles);
   const { client, settings, updateSettings } = useAdbConnection();
   const [text, setText] = useState('');
   const [status, setStatus] = useState<{ error: boolean; text: string } | null>(null);
@@ -40,7 +50,7 @@ export function TextInputPanel({ enabled }: { enabled: boolean }) {
         }
         const extra = want.slice(p);
         if (extra) {
-          await client.sendText(extra, 'whole');
+          await client.sendText(extra, 'whole', settings.model === 'hy300');
           sent.current = want;
         }
       }
@@ -71,6 +81,19 @@ export function TextInputPanel({ enabled }: { enabled: boolean }) {
     setStatus(null);
   };
 
+  /**
+   * The phone's own ⌫ already deletes on the projector through the mirror. On an empty field it changes nothing,
+   * so it is forwarded as a DEL: text that was on the projector before can still be erased from the phone keyboard.
+   */
+  const onKeyPress = ({ nativeEvent }: { nativeEvent: { key: string } }) => {
+    if (nativeEvent.key !== 'Backspace' || text || !enabled) return;
+    client.pressKey('del').catch((e) => setStatus({ error: true, text: describeError(toAdbError(e)) }));
+  };
+
+  /** Arrow/OK shortcuts to pick a search result without leaving the keyboard tab. */
+  const nav = (key: RemoteKey) => () =>
+    void client.pressKey(key).catch((e) => setStatus({ error: true, text: describeError(toAdbError(e)) }));
+
   const enter = async () => {
     if (text && settings.keepHistory) updateSettings({ history: pushHistory(settings.history, text) });
     try {
@@ -81,19 +104,32 @@ export function TextInputPanel({ enabled }: { enabled: boolean }) {
     }
   };
 
+  const navKey = (key: RemoteKey, icon: IconName, label: string) => (
+    <Button
+      key={key}
+      round
+      style={styles.navButton}
+      backgroundColor={colors.surfaceHigh}
+      iconSource={uiIcon(icon, colors.icon, 22)}
+      accessibilityLabel={label}
+      disabled={!enabled}
+      onPress={nav(key)}
+    />
+  );
+
   return (
-    <View style={styles.wrap}>
-      <Text style={styles.hint}>Selecione o campo de busca no projetor e digite: o texto vai sendo enviado. Acentos são removidos.</Text>
-      <TextInput
+    <View gap-s3>
+      <Text style={styles.hint}>Selecione o campo de busca no projetor e digite: o texto vai sendo enviado. O ⌫ do celular apaga no projetor. Acentos são removidos.</Text>
+      <Field
+        autoFocus
         value={text}
         onChangeText={onChange}
+        onKeyPress={onKeyPress}
         editable={enabled}
         placeholder="Digite aqui"
-        placeholderTextColor={colors.textMuted}
-        style={styles.input}
         autoCorrect={false}
         autoCapitalize="none"
-        blurOnSubmit={false}
+        submitBehavior="submit"
         returnKeyType="search"
         onSubmitEditing={enter}
         accessibilityLabel="Texto enviado ao projetor enquanto você digita"
@@ -101,31 +137,45 @@ export function TextInputPanel({ enabled }: { enabled: boolean }) {
       <Text style={[styles.feedback, status?.error && { color: colors.danger }]}>
         {syncing ? 'Enviando…' : (status?.text ?? (text ? 'Sincronizado com o projetor.' : ' '))}
       </Text>
-      <View style={styles.row}>
-        <Pressable
-          accessibilityRole="button"
+      <View row gap-s2>
+        <View flex>
+          <Button label="Enter" size={Button.sizes.large} borderRadius={radius.full} backgroundColor={colors.primary} color={colors.onPrimary} disabled={!enabled} onPress={enter} />
+        </View>
+        <Button label="Limpar" size={Button.sizes.large} borderRadius={radius.full} outline outlineColor={colors.outline} color={colors.icon} onPress={reset} />
+      </View>
+      <View row spread centerV style={styles.navRow}>
+        {navKey('left', ChevronLeft, 'Esquerda')}
+        {navKey('up', ChevronUp, 'Cima')}
+        <Button
+          round
+          style={styles.navButton}
+          backgroundColor={colors.primary}
+          label="OK"
+          labelStyle={styles.okLabel}
+          color={colors.onPrimary}
+          accessibilityLabel="OK"
           disabled={!enabled}
-          onPress={enter}
-          style={({ pressed }) => [styles.primary, pressed && styles.pressed, !enabled && styles.disabled]}>
-          <Text style={styles.primaryText}>Enter</Text>
-        </Pressable>
-        <Pressable accessibilityRole="button" onPress={reset} style={({ pressed }) => [styles.secondary, pressed && styles.pressed]}>
-          <Text style={styles.secondaryText}>Novo texto</Text>
-        </Pressable>
+          onPress={nav('center')}
+        />
+        {navKey('down', ChevronDown, 'Baixo')}
+        {navKey('right', ChevronRight, 'Direita')}
       </View>
       {settings.keepHistory && settings.history.length > 0 && (
-        <View style={styles.history}>
-          <View style={styles.historyHead}>
+        <View gap-s2 marginT-s1>
+          <View row spread centerV>
             <Text style={styles.section}>Recentes</Text>
-            <Pressable accessibilityRole="button" onPress={() => updateSettings({ history: [] })}>
-              <Text style={styles.link}>Apagar histórico</Text>
-            </Pressable>
+            <Button link label="Apagar histórico" linkColor={colors.primary} labelStyle={styles.link} onPress={() => updateSettings({ history: [] })} />
           </View>
-          <View style={styles.chips}>
+          <View row style={styles.chips}>
             {settings.history.map((h) => (
-              <Pressable key={h} accessibilityRole="button" accessibilityLabel={`Digitar "${h}"`} disabled={!enabled} onPress={() => onChange(h)} style={styles.chip}>
-                <Text style={styles.chipText} numberOfLines={1}>{h}</Text>
-              </Pressable>
+              <Chip
+                key={h}
+                label={h}
+                labelStyle={styles.chipText}
+                containerStyle={styles.chip}
+                accessibilityLabel={`Digitar "${h}"`}
+                onPress={enabled ? () => onChange(h) : undefined}
+              />
             ))}
           </View>
         </View>
@@ -134,32 +184,16 @@ export function TextInputPanel({ enabled }: { enabled: boolean }) {
   );
 }
 
-const styles = StyleSheet.create({
-  wrap: { gap: 12 },
-  hint: { color: colors.textMuted, fontSize: 13, lineHeight: 18 },
-  input: {
-    backgroundColor: colors.surface,
-    color: colors.text,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.outline,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 17,
-  },
-  feedback: { color: colors.textMuted, fontSize: 13 },
-  row: { flexDirection: 'row', gap: 8 },
-  primary: { flex: 1, backgroundColor: colors.primary, borderRadius: radius.full, paddingVertical: 14, alignItems: 'center' },
-  primaryText: { color: colors.onPrimary, fontWeight: '700', fontSize: 15 },
-  secondary: { paddingHorizontal: 20, borderRadius: radius.full, borderWidth: 1, borderColor: colors.outline, justifyContent: 'center' },
-  secondaryText: { color: colors.text, fontWeight: '600' },
-  pressed: { opacity: 0.8 },
-  disabled: { opacity: 0.4 },
-  history: { gap: 8, marginTop: 4 },
-  historyHead: { flexDirection: 'row', justifyContent: 'space-between' },
-  section: { color: colors.textMuted, fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8 },
-  link: { color: colors.primary, fontSize: 13 },
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  chip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: radius.full, borderWidth: 1, borderColor: colors.outline, maxWidth: 200 },
-  chipText: { color: colors.text, fontSize: 13 },
-});
+const makeStyles = (colors: Colors) =>
+  StyleSheet.create({
+    hint: { color: colors.textMuted, fontSize: 13, lineHeight: 18 },
+    feedback: { color: colors.textMuted, fontSize: 13 },
+    navRow: { backgroundColor: colors.surface, borderRadius: radius.md, borderWidth: 1, borderColor: colors.outline, padding: 8 },
+    navButton: { width: 48, height: 48 },
+    okLabel: { fontSize: 15, fontWeight: '700' },
+    section: { color: colors.text, fontSize: 16, fontWeight: '600' },
+    link: { fontSize: 13 },
+    chips: { flexWrap: 'wrap', gap: 8 },
+    chip: { borderColor: colors.outline, maxWidth: 200 },
+    chipText: { color: colors.text, fontSize: 13 },
+  });

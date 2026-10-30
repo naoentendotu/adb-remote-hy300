@@ -1,207 +1,241 @@
-import { router } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
-import { KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useState } from 'react';
+import { ActivityIndicator, Image, KeyboardAvoidingView, ScrollView, StyleSheet } from 'react-native';
+import Animated, { FadeIn } from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Button, Card, SegmentedControl, Text, View } from 'react-native-ui-lib';
+import Settings from 'lucide-react-native/icons/settings';
 
-import { ConnectionStatus } from '@/components/ConnectionStatus';
+import { Field } from '@/components/Field';
+import { SavedProjector } from '@/components/SavedProjector';
+import { ThemeToggle, TopIcon, VibrationToggle } from '@/components/QuickToggles';
 import { useAdbConnection } from '@/hooks/useAdbConnection';
+import { useConnect } from '@/hooks/useConnect';
 import { describeError, toAdbError } from '@/services/adb/AdbErrors';
 import { parsePort, validateHost } from '@/services/adb/validation';
-import { colors, radius } from '@/theme';
+import { CARD_GAP, MONO, SCREEN_PAD, radius, useScheme, useThemed, type Colors } from '@/theme';
+import type { ConnectionStatus } from '@/types/adb';
 
-const DEFAULT_HOST = '';
-const BUSY = ['checking-network', 'connecting', 'awaiting-auth', 'reconnecting'];
+const LOGO = { light: require('../../assets/images/logo-horizontal.png'), dark: require('../../assets/images/logo-horizontal-dark.png') };
+const BUSY: ConnectionStatus[] = ['checking-network', 'connecting', 'awaiting-auth', 'reconnecting'];
+const openRemote = () => router.push('/remote');
+const MODELS = ['hy300', 'hy320'] as const;
 
-export default function ConnectionScreen() {
-  const { client, state, demo, setDemo, settings, updateSettings } = useAdbConnection();
+export default function HomeScreen() {
+  const { colors, styles } = useThemed(makeStyles);
+  const insets = useSafeAreaInsets();
+  const scheme = useScheme();
+  const { client, state, setDemo, settings, updateSettings } = useAdbConnection();
+  const connectAndSave = useConnect();
   const saved = settings.savedDevice;
   // Draft = what the user is typing; null means "show the saved device" (settings load asynchronously).
   const [draft, setDraft] = useState<{ host: string; port: string } | null>(null);
   const editing = draft !== null || !saved;
-  const host = draft?.host ?? saved?.host ?? DEFAULT_HOST;
+  const host = draft?.host ?? saved?.host ?? '';
   const port = draft?.port ?? saved?.port ?? '5555';
-  const setHost = (h: string) => setDraft({ host: h, port });
-  const setPort = (p: string) => setDraft({ host, port: p });
-  const [testResult, setTestResult] = useState<string | null>(null);
-  const [testing, setTesting] = useState(false);
-  const wantsRemote = useRef(false);
-
-  useEffect(() => {
-    if (state.status === 'connected' && wantsRemote.current) {
-      wantsRemote.current = false;
-      router.push('/remote');
-    }
-  }, [state.status]);
 
   const busy = BUSY.includes(state.status);
   const connected = state.status === 'connected';
-  const fieldError = validateHost(host) ?? (parsePort(port) === null ? 'Porta inválida (1–65535).' : null);
+  const hostError = validateHost(host);
+  const portError = parsePort(port) === null ? 'Porta inválida (1–65535).' : null;
+  const invalid = !!(hostError ?? portError);
   const isSaved = saved?.host === host.trim() && saved?.port === port.trim();
 
-  const connect = () => {
-    setTestResult(null);
-    wantsRemote.current = true;
-    client.connect(host, port).catch(() => (wantsRemote.current = false));
-  };
-
-  const test = async () => {
-    setTesting(true);
-    setTestResult(null);
-    const r = await client.test(host, port);
-    setTesting(false);
-    setTestResult(
-      `Porta TCP: ${r.tcp ? 'acessível' : 'sem resposta'}\nSessão ADB: ${r.adb ? 'negociada e shell respondendo' : 'não estabelecida'}` +
-        (r.error ? `\n${describeError(r.error)}` : ''),
-    );
-  };
-
-  return (
-    <KeyboardAvoidingView behavior="height" style={styles.flex}>
-      <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
-        <ConnectionStatus status={state.status} detail={state.host && state.status !== 'disconnected' ? `${state.host}:${state.port}` : undefined} />
-        {state.status === 'awaiting-auth' && (
-          <Text style={styles.note}>Se o projetor mostrar “Permitir depuração USB?”, aceite usando o controle físico.</Text>
-        )}
-        {state.status === 'error' && state.error && <Text style={styles.error}>{describeError(toAdbError(state.error))}</Text>}
-
-        <Text style={styles.section}>Projetor</Text>
-        {editing ? (
-          <View style={styles.fields}>
-            <View style={styles.fieldHost}>
-              <Text style={styles.label}>Endereço IP</Text>
-              <TextInput
-                value={host}
-                placeholder="192.168.0.10"
-                placeholderTextColor={colors.textMuted}
-                onChangeText={setHost}
-                keyboardType="decimal-pad"
-                autoCorrect={false}
-                style={styles.input}
-                editable={!busy && !connected}
-                accessibilityLabel="Endereço IP do projetor"
-              />
-            </View>
-            <View style={styles.fieldPort}>
-              <Text style={styles.label}>Porta</Text>
-              <TextInput
-                value={port}
-                onChangeText={setPort}
-                keyboardType="number-pad"
-                style={styles.input}
-                editable={!busy && !connected}
-                accessibilityLabel="Porta TCP do ADB"
-              />
-            </View>
-          </View>
-        ) : (
-          <View style={styles.savedRow}>
-            <View>
-              <Text style={styles.savedHost}>{host}:{port}</Text>
-              <Text style={styles.label}>Dispositivo salvo</Text>
-            </View>
-            <Pressable accessibilityRole="button" disabled={busy || connected} onPress={() => setDraft({ host, port })}>
-              <Text style={[styles.link, (busy || connected) && styles.disabled]}>Editar</Text>
-            </Pressable>
-          </View>
-        )}
-        {editing && fieldError && host.length > 0 && <Text style={styles.fieldError}>{fieldError}</Text>}
-
-        <View style={styles.actions}>
-          {connected ? (
-            <>
-              <Button label="Abrir controle" filled onPress={() => router.push('/remote')} />
-              <Button label="Desconectar" onPress={() => client.disconnect()} />
-            </>
-          ) : busy ? (
-            <Button label="Cancelar" onPress={() => client.disconnect()} />
-          ) : (
-            <Button label="Conectar" filled disabled={!!fieldError || testing} onPress={connect} />
-          )}
-          <Button label={testing ? 'Testando…' : 'Testar conexão'} disabled={!!fieldError || testing || busy} onPress={test} />
-        </View>
-        {editing && (
-          <Pressable
-            accessibilityRole="button"
-            disabled={!!fieldError || isSaved}
-            onPress={() => {
-              updateSettings({ savedDevice: { host: host.trim(), port: port.trim() } });
-              setDraft(null);
-            }}>
-            <Text style={[styles.link, (!!fieldError || isSaved) && styles.disabled]}>Salvar dispositivo</Text>
-          </Pressable>
-        )}
-        {testResult && <Text style={styles.result}>{testResult}</Text>}
-
-        <Text style={styles.section}>Opções</Text>
-        <Row label="Modo demonstração" hint="ADB simulado, sem rede. Para testar a interface sem o projetor.">
-          <Switch value={demo} onValueChange={setDemo} disabled={busy} />
-        </Row>
-        <Row label="Vibração ao tocar">
-          <Switch value={settings.haptics} onValueChange={(v) => updateSettings({ haptics: v })} />
-        </Row>
-        <Pressable accessibilityRole="button" onPress={() => router.push('/diagnostics')}>
-          <Text style={styles.link}>Diagnóstico e segurança</Text>
-        </Pressable>
-      </ScrollView>
-    </KeyboardAvoidingView>
+  // A fresh connection (form, saved card or demo) goes straight to the remote. Only while this screen is in
+  // front, and not for auto-reconnects, so coming back here on purpose does not bounce you away.
+  useFocusEffect(
+    useCallback(() => {
+      let prev = client.getState().status;
+      return client.subscribe(() => {
+        const { status } = client.getState();
+        if (status === 'connected' && prev !== 'connected' && prev !== 'reconnecting') openRemote();
+        prev = status;
+      });
+    }, [client]),
   );
-}
 
-function Button({ label, onPress, filled, disabled }: { label: string; onPress: () => void; filled?: boolean; disabled?: boolean }) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      disabled={disabled}
-      onPress={onPress}
-      style={({ pressed }) => [styles.button, filled && styles.buttonFilled, pressed && styles.pressed, disabled && styles.disabled]}>
-      <Text style={[styles.buttonText, filled && styles.buttonTextFilled]}>{label}</Text>
-    </Pressable>
-  );
-}
+  const connect = (h = host, p = port) => connectAndSave(h, p).then((ok) => ok && setDraft(null));
 
-function Row({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
-    <View style={styles.row}>
-      <View style={styles.flex}>
-        <Text style={styles.rowLabel}>{label}</Text>
-        {hint && <Text style={styles.label}>{hint}</Text>}
-      </View>
-      {children}
+    <View flex style={styles.screen}>
+      <KeyboardAvoidingView behavior="height" style={styles.flex}>
+        <ScrollView
+          contentContainerStyle={[styles.page, { paddingTop: insets.top + 16, paddingBottom: insets.bottom + 32 }]}
+          keyboardShouldPersistTaps="handled">
+          <View row centerV right>
+            <ThemeToggle />
+            <VibrationToggle />
+            <TopIcon icon={Settings} label="Configurações e diagnóstico" onPress={() => router.push('/diagnostics')} />
+          </View>
+          <Image source={LOGO[scheme]} style={styles.logo} resizeMode="contain" accessibilityLabel="Projex Remote" accessibilityRole="header" />
+          <SegmentedControl
+            key={settings.model} // initialIndex is read once; settings load after the first render
+            segments={[{ label: 'HY300' }, { label: 'HY320' }]}
+            initialIndex={MODELS.indexOf(settings.model)}
+            onChangeIndex={(i: number) => updateSettings({ model: MODELS[i] })}
+            backgroundColor={colors.surface}
+            activeBackgroundColor={colors.primaryContainer}
+            activeColor={colors.onPrimaryContainer}
+            inactiveColor={colors.textMuted}
+            outlineColor={colors.primary}
+            style={styles.model}
+          />
+
+          {/* The fields sit lower, in the middle of the space left under the logo. */}
+          <View style={styles.middle}>
+            <SavedProjector onConnect={(h, p) => void connect(h, p)} />
+
+            {busy ? (
+              <Connecting status={state.status} port={state.port ?? Number(port)} onCancel={() => client.disconnect()} />
+            ) : connected ? (
+              <Animated.View key="connected" entering={FadeIn.duration(200)}>
+                <Card padding-s5 gap-s3 enableShadow={false} borderRadius={radius.md} style={styles.card}>
+                  <Text style={styles.title}>Conectado</Text>
+                  <Button label="Abrir controle" size={Button.sizes.large} borderRadius={radius.full} backgroundColor={colors.primary} color={colors.onPrimary} labelStyle={styles.ctaLabel} style={styles.cta} onPress={openRemote} />
+                </Card>
+              </Animated.View>
+            ) : (
+              <Animated.View key="form" entering={FadeIn.duration(200)}>
+                <Card padding-s5 gap-s3 enableShadow={false} borderRadius={radius.md} style={styles.card}>
+                  <Text style={styles.title}>Conectar ao projetor</Text>
+                  <Text style={styles.body}>Celular e projetor precisam estar na mesma rede Wi-Fi.</Text>
+                  {state.status === 'error' && state.error && <Text style={styles.error}>{describeError(toAdbError(state.error))}</Text>}
+
+                  {editing ? (
+                    <>
+                      <View row gap-s3>
+                        <View flex-3>
+                          <Field
+                            mono
+                            label="IP do projetor"
+                            value={host}
+                            placeholder="192.168.0.10"
+                            onChangeText={(h: string) => setDraft({ host: h, port })}
+                            keyboardType="decimal-pad"
+                            autoCorrect={false}
+                            accessibilityLabel="Endereço IP do projetor"
+                            validationMessage={host.length > 0 && hostError ? hostError : undefined}
+                          />
+                        </View>
+                        <View flex-1>
+                          <Field
+                            mono
+                            label="Porta"
+                            value={port}
+                            onChangeText={(p: string) => setDraft({ host, port: p })}
+                            keyboardType="number-pad"
+                            accessibilityLabel="Porta TCP do ADB"
+                            validationMessage={portError ?? undefined}
+                          />
+                        </View>
+                      </View>
+                      <Text style={styles.hint}>O IP aparece no projetor em Configurações → Rede → Wi-Fi.</Text>
+                    </>
+                  ) : (
+                    <View row spread centerV style={styles.savedRow}>
+                      <View>
+                        <Text style={styles.hint}>Projetor salvo</Text>
+                        <Text style={styles.savedHost}>
+                          {host}:{port}
+                        </Text>
+                      </View>
+                      <Button link label="Alterar" linkColor={colors.primary} labelStyle={styles.link} onPress={() => setDraft({ host, port })} />
+                    </View>
+                  )}
+
+                  <Button
+                    label="Conectar"
+                    size={Button.sizes.large}
+                    borderRadius={radius.full}
+                    backgroundColor={colors.primary}
+                    disabledBackgroundColor={colors.surfaceHigh}
+                    color={invalid ? colors.textMuted : colors.onPrimary}
+                    labelStyle={styles.ctaLabel}
+                    style={styles.cta}
+                    disabled={invalid}
+                    onPress={() => void connect()}
+                  />
+                  {editing && !isSaved && !invalid && (
+                    <Button
+                      link
+                      label="Salvar sem conectar"
+                      linkColor={colors.primary}
+                      labelStyle={styles.link}
+                      onPress={() => {
+                        updateSettings({ savedDevice: { host: host.trim(), port: port.trim() } });
+                        setDraft(null);
+                      }}
+                    />
+                  )}
+                </Card>
+              </Animated.View>
+            )}
+
+            {!busy && !connected && (
+              <Card row centerV padding-s4 gap-s3 enableShadow={false} borderRadius={radius.md} style={styles.card}>
+                <View flex>
+                  <Text style={styles.rowLabel}>Modo demonstração</Text>
+                  <Text style={styles.hint}>Simula o projetor, para conhecer o app sem ele.</Text>
+                </View>
+                <Button label="Experimentar" size={Button.sizes.medium} borderRadius={radius.full} outline outlineColor={colors.outline} color={colors.primary} onPress={() => setDemo(true)} />
+              </Card>
+            )}
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  page: { padding: 20, gap: 14, paddingBottom: 48 },
-  section: { color: colors.textMuted, fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 12 },
-  note: { color: colors.warning, fontSize: 14, lineHeight: 20 },
-  error: { color: colors.danger, fontSize: 14, lineHeight: 20 },
-  fields: { flexDirection: 'row', gap: 12 },
-  fieldHost: { flex: 3, gap: 6 },
-  fieldPort: { flex: 1.3, gap: 6 },
-  label: { color: colors.textMuted, fontSize: 13 },
-  input: {
-    backgroundColor: colors.surface,
-    color: colors.text,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    borderColor: colors.outline,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 17,
-  },
-  fieldError: { color: colors.danger, fontSize: 13 },
-  savedRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: colors.surface, borderRadius: radius.md, padding: 16 },
-  savedHost: { color: colors.text, fontSize: 18, fontWeight: '600' },
-  actions: { gap: 10 },
-  button: { borderRadius: radius.full, paddingVertical: 15, alignItems: 'center', borderWidth: 1, borderColor: colors.outline },
-  buttonFilled: { backgroundColor: colors.primary, borderColor: colors.primary },
-  buttonText: { color: colors.text, fontWeight: '600', fontSize: 16 },
-  buttonTextFilled: { color: colors.onPrimary },
-  pressed: { opacity: 0.8 },
-  disabled: { opacity: 0.4 },
-  link: { color: colors.primary, fontSize: 15, fontWeight: '600', paddingVertical: 6 },
-  result: { color: colors.text, backgroundColor: colors.surface, borderRadius: radius.md, padding: 14, lineHeight: 21 },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  rowLabel: { color: colors.text, fontSize: 16 },
-});
+/** Connection progress: what the app is waiting for, step by step, with the one Cancel button. */
+function Connecting({ status, port, onCancel }: { status: ConnectionStatus; port: number; onCancel: () => void }) {
+  const { colors, styles } = useThemed(makeStyles);
+  const portOk = status !== 'checking-network';
+  const title = status === 'awaiting-auth' ? 'Aceite no projetor' : status === 'reconnecting' ? 'Reconectando' : 'Conectando';
+  const body =
+    status === 'awaiting-auth'
+      ? 'Na tela do projetor, confirme “Permitir depuração USB?” com o controle físico.'
+      : status === 'reconnecting'
+        ? 'A rede oscilou. A sessão está sendo retomada.'
+        : 'Procurando o projetor e abrindo a sessão ADB.';
+  const step = (done: boolean, label: string) => (
+    <View row centerV gap-s3 style={styles.step}>
+      {done ? <View style={[styles.stepDot, { backgroundColor: colors.success }]} /> : <ActivityIndicator size="small" color={colors.primary} />}
+      <Text style={styles.rowLabel}>{label}</Text>
+    </View>
+  );
+  return (
+    <Animated.View key="busy" entering={FadeIn.duration(200)}>
+      <Card padding-s5 gap-s3 enableShadow={false} borderRadius={radius.md} style={styles.card}>
+        <Text style={styles.title}>{title}</Text>
+        <Text style={styles.body}>{body}</Text>
+        {step(portOk, portOk ? `Porta ${port} respondendo` : `Procurando a porta ${port}`)}
+        {step(false, status === 'awaiting-auth' ? 'Aguardando autorização' : 'Abrindo sessão ADB')}
+        <Button label="Cancelar" size={Button.sizes.large} borderRadius={radius.full} outline outlineColor={colors.outline} color={colors.icon} onPress={onCancel} />
+      </Card>
+    </Animated.View>
+  );
+}
+
+const makeStyles = (colors: Colors) =>
+  StyleSheet.create({
+    screen: { backgroundColor: colors.background },
+    flex: { flex: 1 },
+    page: { flexGrow: 1, paddingHorizontal: SCREEN_PAD, gap: CARD_GAP },
+    logo: { width: 260, height: 76, alignSelf: 'center', marginTop: 8 },
+    model: { alignSelf: 'center', minWidth: 220 },
+    middle: { flexGrow: 1, justifyContent: 'center', gap: CARD_GAP, paddingVertical: 16 },
+    card: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.outline },
+    title: { color: colors.text, fontSize: 20, fontWeight: '700' },
+    body: { color: colors.textMuted, fontSize: 15, lineHeight: 21 },
+    hint: { color: colors.textMuted, fontSize: 13, lineHeight: 18 },
+    error: { color: colors.danger, fontSize: 14, lineHeight: 20 },
+    savedRow: { backgroundColor: colors.surfaceHigh, borderRadius: radius.sm, padding: 14 },
+    savedHost: { color: colors.text, fontSize: 17, fontWeight: '600', fontFamily: MONO },
+    cta: { height: 52, marginTop: 4 },
+    ctaLabel: { fontSize: 17, fontWeight: '700' },
+    link: { fontSize: 15, fontWeight: '600' },
+    rowLabel: { color: colors.text, fontSize: 15, fontWeight: '600' },
+    step: { minHeight: 28 },
+    stepDot: { width: 10, height: 10, borderRadius: 5, marginHorizontal: 5 },
+  });

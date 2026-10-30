@@ -9,6 +9,8 @@ export interface Settings {
   textMode: TextMode;
   keepHistory: boolean;
   history: string[];
+  theme: 'system' | 'light' | 'dark';
+  model: 'hy300' | 'hy320';
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -17,6 +19,8 @@ export const DEFAULT_SETTINGS: Settings = {
   textMode: 'whole',
   keepHistory: true,
   history: [],
+  theme: 'dark',
+  model: 'hy300',
 };
 
 const KEY = 'remote-adb-controller/settings/v1';

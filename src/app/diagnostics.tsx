@@ -1,15 +1,14 @@
 import { useState } from 'react';
 import { Alert, ScrollView, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Button, Card, Switch, Text, View } from 'react-native-ui-lib';
-import Moon from 'lucide-react-native/icons/moon';
-import Sun from 'lucide-react-native/icons/sun';
+import { Button, Card, SegmentedControl, Switch, Text, View } from 'react-native-ui-lib';
 
 import { SavedProjector } from '@/components/SavedProjector';
-import { uiIcon } from '@/components/uiIcon';
 import { useAdbConnection } from '@/hooks/useAdbConnection';
 import { describeError, toAdbError } from '@/services/adb/AdbErrors';
 import { CARD_GAP, MONO, SCREEN_PAD, STATUS_LABEL, radius, useScheme, useThemed, type Colors } from '@/theme';
+
+const THEMES = ['dark', 'light'] as const;
 
 export default function DiagnosticsScreen() {
   const { colors, styles } = useThemed(makeStyles);
@@ -35,27 +34,6 @@ export default function DiagnosticsScreen() {
       [{ text: 'Cancelar', style: 'cancel' }, { text: 'Gerar nova chave', style: 'destructive', onPress: () => client.resetKey().catch(() => {}) }],
     );
 
-  const themeOption = (value: 'dark' | 'light', label: string, icon: typeof Sun) => {
-    const on = scheme === value;
-    const fg = on ? colors.onPrimaryContainer : colors.textMuted;
-    return (
-      <View flex>
-        <Button
-          label={label}
-          iconSource={uiIcon(icon, fg, 18, 6)}
-          backgroundColor={on ? colors.primaryContainer : 'transparent'}
-          color={fg}
-          borderRadius={radius.full}
-          style={styles.segment}
-          labelStyle={styles.segmentLabel}
-          accessibilityRole="button"
-          accessibilityState={{ selected: on }}
-          onPress={() => updateSettings({ theme: value })}
-        />
-      </View>
-    );
-  };
-
   const metric = (label: string, value: string, mono = false) => (
     <View flex gap-s1 style={styles.metric}>
       <Text style={styles.key}>{label}</Text>
@@ -69,10 +47,17 @@ export default function DiagnosticsScreen() {
       <Card padding-s4 gap-s4 enableShadow={false} borderRadius={radius.md} style={styles.card}>
         <View gap-s2>
           <Text style={styles.rowLabel}>Tema</Text>
-          <View row style={styles.segments}>
-            {themeOption('dark', 'Escuro', Moon)}
-            {themeOption('light', 'Claro', Sun)}
-          </View>
+          {/* Same control and colors as the HY300/HY320 picker on the home screen. */}
+          <SegmentedControl
+            segments={[{ label: 'Escuro' }, { label: 'Claro' }]}
+            initialIndex={THEMES.indexOf(scheme)}
+            onChangeIndex={(i: number) => updateSettings({ theme: THEMES[i] })}
+            backgroundColor={colors.surface}
+            activeBackgroundColor={colors.primaryContainer}
+            activeColor={colors.onPrimaryContainer}
+            inactiveColor={colors.textMuted}
+            outlineColor={colors.primary}
+          />
         </View>
         <View row centerV gap-s3>
           <View flex>
@@ -146,9 +131,6 @@ const makeStyles = (colors: Colors) =>
     section: { color: colors.text, fontSize: 16, fontWeight: '600', marginTop: 8 },
     card: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.outline },
     rowLabel: { color: colors.text, fontSize: 15, fontWeight: '600' },
-    segments: { gap: 4, padding: 3, borderRadius: radius.sm, backgroundColor: colors.surfaceHigh },
-    segment: { height: 40 },
-    segmentLabel: { fontSize: 14, fontWeight: '600' },
     metric: { backgroundColor: colors.surfaceHigh, borderRadius: radius.sm, padding: 12 },
     key: { color: colors.textMuted, fontSize: 12 },
     value: { color: colors.text, fontSize: 15 },

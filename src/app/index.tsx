@@ -69,7 +69,6 @@ export default function HomeScreen() {
           </View>
           <Image source={LOGO[scheme]} style={styles.logo} resizeMode="contain" accessibilityLabel="Projex Remote" accessibilityRole="header" />
           <SegmentedControl
-            key={settings.model} // initialIndex is read once; settings load after the first render
             segments={[{ label: 'HY300' }, { label: 'HY320' }]}
             initialIndex={MODELS.indexOf(settings.model)}
             onChangeIndex={(i: number) => updateSettings({ model: MODELS[i] })}

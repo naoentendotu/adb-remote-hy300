@@ -11,6 +11,8 @@ export interface Settings {
   history: string[];
   theme: 'system' | 'light' | 'dark';
   model: 'hy300' | 'hy320';
+  /** The touchpad's gesture tutorial opens by itself until it has been seen once. */
+  touchpadTutorialSeen: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -21,6 +23,7 @@ export const DEFAULT_SETTINGS: Settings = {
   history: [],
   theme: 'dark',
   model: 'hy300',
+  touchpadTutorialSeen: false,
 };
 
 const KEY = 'remote-adb-controller/settings/v1';

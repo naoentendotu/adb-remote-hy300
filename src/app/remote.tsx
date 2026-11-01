@@ -14,6 +14,7 @@ import type { IconName } from '@/components/RemoteButton';
 import { RemotePanel } from '@/components/RemotePanel';
 import { TabBar, type Tab } from '@/components/TabBar';
 import { TextInputPanel } from '@/components/TextInputPanel';
+import { TouchpadPanel } from '@/components/TouchpadPanel';
 import { ThemeToggle, TopIcon, VibrationToggle } from '@/components/QuickToggles';
 import { askPowerOff, TimerSheet } from '@/components/TimerSheet';
 import { uiIcon } from '@/components/uiIcon';
@@ -65,9 +66,12 @@ export default function RemoteScreen() {
         <Animated.View key={tab} entering={FadeInDown.duration(220)} style={styles.flex}>
           <ScrollView
             contentContainerStyle={[styles.page, tab === 'pad' && styles.centered, { paddingBottom: insets.bottom + 32 }]}
+            // The touchpad owns every drag; the page must not scroll under the finger.
+            scrollEnabled={tab !== 'touch'}
             keyboardShouldPersistTaps="handled">
             {tab === 'pad' && <RemotePanel enabled={connected} />}
             {tab === 'text' && <TextInputPanel enabled={connected} />}
+            {tab === 'touch' && <TouchpadPanel enabled={connected} />}
             {tab === 'apps' && <AppsPanel enabled={connected} />}
           </ScrollView>
         </Animated.View>

@@ -4,6 +4,9 @@ import {
   FOREGROUND_COMMAND,
   LIST_APPS_COMMAND,
   POWER_OFF_COMMAND,
+  START_MOUSE_COMMAND,
+  STOP_MOUSE_COMMAND,
+  mouseReportCommand,
   parseAppList,
   IR_DEVICE_NAME,
   SLEEP_STATUS_COMMAND,
@@ -246,6 +249,26 @@ export class AdbClient {
   /** Power off now, confirming the projector's own prompt. The connection drops right after. */
   powerOff() {
     return this.run(() => this.execVoid(POWER_OFF_COMMAND));
+  }
+
+  /** Shows a mouse cursor on the projector (virtual HID mouse); safe to call again while it runs. */
+  startMouse() {
+    return this.run(() => this.execVoid(START_MOUSE_COMMAND));
+  }
+
+  /** HID reports [buttons, dx, dy, wheel] for the virtual mouse; fails if the mouse is not running. */
+  mouse(reports: number[][]) {
+    let cmd: string;
+    try {
+      cmd = mouseReportCommand(reports);
+    } catch (e) {
+      return Promise.reject(e);
+    }
+    return this.run(() => this.execVoid(cmd));
+  }
+
+  stopMouse() {
+    return this.run(() => this.execVoid(STOP_MOUSE_COMMAND));
   }
 
   /** The projector's sleep timer, or null when none is set. */

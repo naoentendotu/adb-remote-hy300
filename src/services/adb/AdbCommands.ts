@@ -235,3 +235,57 @@ export function parseAppList(text: string): InstalledApp[] {
     .map(([pkg, label, icon]) => ({ pkg, label: label || pkg, icon: `data:image/png;base64,${icon}` }))
     .sort((a, b) => a.label.localeCompare(b.label));
 }
+
+const MOUSE_FIFO = '/data/local/tmp/projex-mouse';
+
+/** HID boot-style mouse: 3 buttons, then relative X, Y and wheel as signed bytes (-127..127). */
+const MOUSE_DESCRIPTOR = [
+  0x05, 0x01, 0x09, 0x02, 0xa1, 0x01, 0x09, 0x01, 0xa1, 0x00, 0x05, 0x09, 0x19, 0x01, 0x29, 0x03, 0x15, 0x00, 0x25, 0x01,
+  0x95, 0x03, 0x75, 0x01, 0x81, 0x02, 0x95, 0x01, 0x75, 0x05, 0x81, 0x03, 0x05, 0x01, 0x09, 0x30, 0x09, 0x31, 0x09, 0x38,
+  0x15, 0x81, 0x25, 0x7f, 0x75, 0x08, 0x95, 0x03, 0x81, 0x06, 0xc0, 0xc0,
+];
+
+const MOUSE_REGISTER = JSON.stringify({ id: 1, command: 'register', name: 'Projex Mouse', vid: 0x1234, pid: 0x5678, descriptor: MOUSE_DESCRIPTOR });
+
+/**
+ * Registers a virtual USB mouse through Android's own `hid` tool (/dev/uhid; the adb shell is in the uhid group,
+ * no root needed), so the projector shows a real cursor. `hid` reads JSON commands from a FIFO; a sleeping writer
+ * keeps the FIFO open so `hid` never sees EOF between our writes. Idempotent: does nothing while it is running.
+ */
+export const START_MOUSE_COMMAND =
+  `F=${MOUSE_FIFO}; if ! { [ -f $F.pid ] && kill -0 $(cat $F.pid) 2>/dev/null; }; then ` +
+  `rm -f $F; mkfifo $F; ` +
+  `setsid sh -c "sleep 2147483647 > $F" </dev/null >/dev/null 2>&1 & echo $! > $F.hold; ` +
+  `setsid hid $F </dev/null >/dev/null 2>&1 & echo $! > $F.pid; ` +
+  `sleep 0.5; echo ${shellQuote(MOUSE_REGISTER)} > $F; sleep 0.3; fi`;
+
+/** Removes the virtual mouse: killing the writer closes the FIFO, which ends `hid` and unregisters the device. */
+export const STOP_MOUSE_COMMAND = `F=${MOUSE_FIFO}; for p in $F.hold $F.pid; do [ -f $p ] && kill $(cat $p) 2>/dev/null; done; rm -f $F $F.hold $F.pid; true`;
+
+export const MOUSE_LEFT = 1;
+export const MOUSE_RIGHT = 2;
+
+/** Relative motion as HID reports [buttons, dx, dy, wheel]; long moves are split into ±127 steps. */
+export function mouseReports(dx: number, dy: number, wheel = 0, buttons = 0): number[][] {
+  [dx, dy, wheel, buttons].forEach((v, i) => assertInt(`m${i}`, v, -100_000, 100_000));
+  const steps = Math.max(1, Math.ceil(Math.max(Math.abs(dx), Math.abs(dy), Math.abs(wheel)) / 127));
+  const out: number[][] = [];
+  let sx = 0, sy = 0, sw = 0;
+  for (let i = 1; i <= steps; i++) {
+    const nx = Math.round((dx * i) / steps), ny = Math.round((dy * i) / steps), nw = Math.round((wheel * i) / steps);
+    out.push([buttons, nx - sx, ny - sy, nw - sw]);
+    [sx, sy, sw] = [nx, ny, nw];
+  }
+  return out;
+}
+
+/** Writes reports to the running `hid`; skipped if it died, since opening a reader-less FIFO would block the shell. */
+export function mouseReportCommand(reports: number[][]): string {
+  const lines = reports.map((r) => {
+    if (r.length !== 4) throw new AdbError('INVALID_ARGUMENT', 'relatório de mouse');
+    r.forEach((v, i) => assertInt(`r${i}`, v, i === 0 ? 0 : -127, i === 0 ? 7 : 127));
+    // HID wants signed bytes as 0..255.
+    return JSON.stringify({ id: 1, command: 'report', report: r.map((v) => v & 0xff) });
+  });
+  return `F=${MOUSE_FIFO}; [ -f $F.pid ] && kill -0 $(cat $F.pid) 2>/dev/null && printf '%s\n' ${lines.map(shellQuote).join(' ')} > $F`;
+}

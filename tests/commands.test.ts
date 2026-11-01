@@ -188,3 +188,30 @@ describe('parseAppList', () => {
     ]);
   });
 });
+
+describe('virtual mouse', () => {
+  const { mouseReports, mouseReportCommand, START_MOUSE_COMMAND, STOP_MOUSE_COMMAND } = jest.requireActual('@/services/adb/AdbCommands');
+  it('splits long moves into ±127 steps that add up exactly', () => {
+    const r: number[][] = mouseReports(300, -50, 0);
+    expect(r).toHaveLength(3);
+    expect(r.every(([, x, y]) => Math.abs(x) <= 127 && Math.abs(y) <= 127)).toBe(true);
+    expect(r.reduce((s, [, x]) => s + x, 0)).toBe(300);
+    expect(r.reduce((s, [, , y]) => s + y, 0)).toBe(-50);
+    expect(mouseReports(0, 0, 0, 1)).toEqual([[1, 0, 0, 0]]);
+  });
+  it('writes signed bytes as 0..255 JSON reports, only while hid is alive', () => {
+    const cmd: string = mouseReportCommand([[1, -1, 5, 0]]);
+    expect(cmd).toContain('kill -0');
+    expect(cmd).toContain(`'{"id":1,"command":"report","report":[1,255,5,0]}'`);
+  });
+  it('rejects out-of-range or malformed reports', () => {
+    expect(() => mouseReportCommand([[0, 128, 0, 0]])).toThrow();
+    expect(() => mouseReportCommand([[8, 0, 0, 0]])).toThrow();
+    expect(() => mouseReportCommand([[0, 0, 0]])).toThrow();
+    expect(() => mouseReports(1.5, 0)).toThrow();
+  });
+  it('registers through the hid tool once, and stops by closing the FIFO', () => {
+    expect(START_MOUSE_COMMAND).toMatch(/kill -0 .*mkfifo .*setsid hid .*"command":"register"/);
+    expect(STOP_MOUSE_COMMAND).toContain('rm -f');
+  });
+});

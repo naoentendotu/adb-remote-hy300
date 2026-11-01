@@ -105,9 +105,10 @@ export default function DiagnosticsScreen() {
       <Text style={styles.body}>
         O app só conecta ao endereço da rede local que você informar e não envia nada para servidores externos. A chave ADB deste
         celular fica cifrada pelo Android Keystore e nunca aparece em logs.{'\n\n'}
-        HY300: na investigação, o projetor estava com ro.adb.secure=0 — o ADB não pede autorização e entrega shell root a qualquer
-        aparelho da mesma rede Wi-Fi. Mantenha o ADB por rede desligado quando não estiver usando, e nunca encaminhe a porta 5555 no
-        roteador.{'\n\n'}
+        O ADB por rede dá acesso amplo ao projetor para qualquer aparelho da mesma rede Wi-Fi. Depende do firmware: alguns HY300
+        não pedem autorização (ro.adb.secure=0) e dão shell root; outros pedem para aceitar o celular na primeira conexão e rodam
+        sem root. A linha “Shell ADB” acima mostra o caso do seu. Mantenha o ADB por rede desligado quando não estiver usando e
+        nunca encaminhe a porta 5555 no roteador.{'\n\n'}
         Revogar este celular (em aparelhos que exigem autorização): no projetor, Configurações → Opções do desenvolvedor → Revogar
         autorizações de depuração USB. Por ADB, apague /data/misc/adb/adb_keys. Use também “Gerar nova chave” abaixo.
       </Text>

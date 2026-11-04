@@ -172,7 +172,8 @@ describe('apps / timer / store', () => {
   });
   it('confirms the power-off prompt with OK, only while the screen is awake', () => {
     const { POWER_OFF_COMMAND } = jest.requireActual('@/services/adb/AdbCommands');
-    const confirm = 'input keyevent 26; sleep 2; dumpsys power | grep -q mWakefulness=Awake && input keyevent 23';
+    const confirm =
+      'input keyevent 26; sleep 2; for i in 1 2 3; do dumpsys power | grep -q mWakefulness=Awake || break; input keyevent 23; sleep 2; done';
     expect(POWER_OFF_COMMAND).toBe(`setsid sh -c '${confirm}' </dev/null >/dev/null 2>&1 &`);
     expect(scheduleSleepCommand(30)).toMatch(/sleep 1800; dumpsys power \| grep -q mWakefulness=Awake && \{ a=\$\(.*am force-stop \$a; /);
     expect(scheduleSleepCommand(30)).toContain(`am force-stop $a; ${confirm}; };`);

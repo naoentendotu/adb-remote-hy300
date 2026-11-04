@@ -161,8 +161,12 @@ export function forceStopCommand(pkg: string): string {
 
 const SLEEP_FILE = '/data/local/tmp/remote-adb-sleep';
 
-/** Power, then OK on the HY300's "power off?" prompt, which only exists while the screen is still awake. */
-const POWER_OFF = 'input keyevent 26; sleep 2; dumpsys power | grep -q mWakefulness=Awake && input keyevent 23';
+/**
+ * Power, then OK on the HY300's "power off?" prompt, which only exists while the screen is still awake.
+ * Retries the OK while the screen stays awake, in case the first one landed before the prompt was up.
+ */
+const POWER_OFF =
+  'input keyevent 26; sleep 2; for i in 1 2 3; do dumpsys power | grep -q mWakefulness=Awake || break; input keyevent 23; sleep 2; done';
 
 /**
  * Home, then force-stop the app that was on screen unless Home brought it back (it is the launcher).

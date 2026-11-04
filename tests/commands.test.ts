@@ -65,7 +65,6 @@ describe('key mapping', () => {
     // key down: type=1 code=103 value=1
     expect(bytes.slice(8, 16)).toEqual([1, 0, 103, 0, 1, 0, 0, 0]);
     expect(bytes.slice(16, 32)).toEqual(new Array(16).fill(0));
-    // key up
     expect(bytes.slice(40, 48)).toEqual([1, 0, 103, 0, 0, 0, 0, 0]);
   });
 

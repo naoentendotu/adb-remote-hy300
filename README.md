@@ -2,6 +2,14 @@
 
 App Android (Expo + React Native) que controla o projetor HY300 (e HY320) pela rede local via ADB sobre TCP.
 
+## Capturas
+
+| Início (claro) | Início (escuro) | Controle |
+| :---: | :---: | :---: |
+| <img src="assets/capturas/telainicial-modoclaro.jpg" width="240" alt="Tela inicial no modo claro"> | <img src="assets/capturas/telainicial-modonoturno.jpg" width="240" alt="Tela inicial no modo escuro"> | <img src="assets/capturas/abacontrole.jpg" width="240" alt="Aba Controle"> |
+| **Teclado** | **Touchpad** | **Apps** |
+| <img src="assets/capturas/abateclado.jpg" width="240" alt="Aba Teclado"> | <img src="assets/capturas/abatouch.jpg" width="240" alt="Aba Touchpad"> | <img src="assets/capturas/abaapps.jpg" width="240" alt="Aba Apps"> |
+
 ## Funcionalidades
 
 - **Conexão:** IP e porta (5555) do projetor, salvos ao conectar; modo demonstração com projetor simulado; seletor de modelo HY300 / HY320.
